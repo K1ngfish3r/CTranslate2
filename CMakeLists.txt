@@ -23,6 +23,7 @@ option(BUILD_TESTS "Compile the tests" OFF)
 option(BUILD_SHARED_LIBS "Build shared libraries" ON)
 option(WITH_TENSOR_PARALLEL "Compile with NCCL and MPI backend" OFF)
 option(WITH_FLASH_ATTN "Compile with Flash Attention 2" OFF)
+option(WITH_XPU "Compile with XPU backend using oneDNN" OFF)
 option(ENABLE_ADDRESS_SANITIZER "ASAN" OFF)
 
 MESSAGE(STATUS "Compiler Id: ${CMAKE_CXX_COMPILER_ID}")
@@ -226,6 +227,32 @@ set(SOURCES
   src/utils.cc
   src/vocabulary.cc
   src/vocabulary_map.cc
+)
+set(XPU_SOURCES
+  src/xpu/utils.cc
+  src/xpu/allocator.cc
+  src/xpu/primitives.cc
+  src/ops/layer_norm_xpu.cc
+  src/ops/rms_norm_xpu.cc
+  src/ops/softmax_xpu.cc
+  src/ops/conv1d_xpu.cc
+  src/ops/mean_xpu.cc
+  src/ops/quantize_xpu.cc
+  src/ops/dequantize_xpu.cc
+  src/ops/rotary_xpu.cc
+  src/ops/alibi_add_xpu.cc
+  src/ops/topk_xpu.cc
+  src/ops/multinomial_xpu.cc
+  src/ops/gather_xpu.cc
+  src/ops/concat_split_slide_xpu.cc
+  src/ops/topp_mask_xpu.cc
+  src/ops/gumbel_max_xpu.cc
+  src/ops/median_filter_xpu.cc
+  src/ops/nccl_ops_xpu.cc
+  src/ops/flash_attention_xpu.cc
+  src/ops/awq/gemm_xpu.cc
+  src/ops/awq/gemv_xpu.cc
+  src/ops/awq/dequantize_xpu.cc
 )
 set(CUDA_SOURCES
   src/cuda/allocator.cc
@@ -443,6 +470,82 @@ if(WITH_DNNL)
   add_definitions(-DCT2_WITH_DNNL)
   list(APPEND PRIVATE_INCLUDE_DIRECTORIES ${DNNL_INCLUDE_DIR})
   list(APPEND LIBRARIES ${DNNL_LIBRARY})
+endif()
+
+if(WITH_XPU)
+  # WITH_XPU requires the Intel DPC++ compiler (icpx) or Clang with SYCL support.
+  # MSVC does not support -fsycl and will not compile SYCL code.
+  if(NOT (CMAKE_CXX_COMPILER_ID STREQUAL "IntelLLVM" OR CMAKE_CXX_COMPILER_ID STREQUAL "Clang"))
+    message(FATAL_ERROR
+      "WITH_XPU=ON requires Intel DPC++ (icpx) or Clang compiler with SYCL support.\n"
+      "Detected compiler: ${CMAKE_CXX_COMPILER_ID} (${CMAKE_CXX_COMPILER}).\n"
+      "On Windows, use -G Ninja and set -DCMAKE_CXX_COMPILER=icpx.\n"
+      "On Linux, ensure icpx is in PATH or set -DCMAKE_CXX_COMPILER=icpx.")
+  endif()
+
+  add_definitions(-DCT2_WITH_XPU)
+  list(APPEND SOURCES ${XPU_SOURCES})
+
+  # Enable SYCL compilation mode (required for DNNL SYCL headers and icpx compiler)
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fsycl")
+  add_compile_options(-fsycl)
+  # Suppress "loop not unrolled" warnings from SYCL system headers (cg_types.hpp)
+  # These are false positives from Intel's own SYCL runtime code, not our codebase.
+  add_compile_options(-Wno-pass-failed)
+  if(COMMAND add_link_options)
+    add_link_options(-fsycl)
+  else()
+    set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -fsycl")
+    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fsycl")
+  endif()
+
+  # Find DNNL include (shared header location for all variants)
+  find_path(DNNL_INCLUDE_DIR NAMES dnnl.h PATHS
+    ${INTEL_ROOT}/oneapi/dnnl/latest/include
+    /opt/intel/oneapi/dnnl/latest/include
+    /usr/local/include)
+  if(DNNL_INCLUDE_DIR)
+    message(STATUS "Found DNNL include directory: ${DNNL_INCLUDE_DIR}")
+    list(APPEND PRIVATE_INCLUDE_DIRECTORIES ${DNNL_INCLUDE_DIR})
+  else()
+    message(FATAL_ERROR "DNNL include directory not found, required for XPU support")
+  endif()
+
+  # Find DNNL GPU library with SYCL support
+  set(DNNL_GPU_PATH ${INTEL_ROOT}/oneapi/dnnl/latest)
+  if(NOT EXISTS ${DNNL_GPU_PATH})
+    set(DNNL_GPU_PATH /opt/intel/oneapi/dnnl/latest)
+  endif()
+  find_library(DNNL_LIBRARY NAMES dnnl PATHS
+    ${DNNL_GPU_PATH}/lib
+    /usr/local/lib)
+  if(NOT DNNL_LIBRARY)
+    message(FATAL_ERROR "oneDNN GPU library not found, required for XPU support")
+  endif()
+  message(STATUS "Found DNNL GPU library: ${DNNL_LIBRARY}")
+  list(APPEND LIBRARIES ${DNNL_LIBRARY})
+
+  # Find SYCL runtime (required by DNNL GPU library)
+  find_library(SYCL_LIBRARY NAMES sycl PATHS
+    ${INTEL_ROOT}/lib
+    /opt/intel/oneapi/lib
+    /opt/intel/oneapi/compiler/latest/lib)
+  if(SYCL_LIBRARY)
+    message(STATUS "Found SYCL runtime: ${SYCL_LIBRARY}")
+    list(APPEND LIBRARIES ${SYCL_LIBRARY})
+  endif()
+
+  # Tensor parallel support (oneCCL + MPI) for XPU.
+  if (WITH_TENSOR_PARALLEL)
+    find_package(MPI REQUIRED)
+    find_package(oneCCL REQUIRED)
+    message(STATUS "Found oneCCL and MPI — enabling tensor parallel for XPU")
+    include_directories(${MPI_INCLUDE_PATH})
+    list(APPEND LIBRARIES ${MPI_LIBRARIES} oneCCL)
+    add_definitions(-DCT2_WITH_TENSOR_PARALLEL)
+  else()
+    message(STATUS "Tensor parallel disabled for XPU")
+  endif()
 endif()
 
 if (WITH_ACCELERATE)

@@ -1,5 +1,6 @@
 #include "ctranslate2/ops/nccl_ops.h"
 #include "dispatch.h"
+#include "type_dispatch.h"
 
 namespace ctranslate2 {
   namespace ops {

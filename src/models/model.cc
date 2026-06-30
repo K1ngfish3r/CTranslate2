@@ -832,14 +832,6 @@ namespace ctranslate2 {
       if (device == Device::CUDA && !cuda::have_same_compute_capability(device_indices))
         throw std::invalid_argument("Cannot use multiple GPUs with different Compute Capabilities "
                                     "for the same model");
-      if (tensor_parallel && device != Device::CUDA) {
-        throw std::invalid_argument("Tensor Parallel mode can run only on cuda");
-      }
-      if (tensor_parallel && (device_indices.size() > 1)) {
-        spdlog::warn("Running model in mode tensor parallel does not support"
-                     " running independently a model in each device");
-      }
-
       bool supports_flash_attention = false;
       if (device == Device::CUDA) {
         int device_id = ctranslate2::get_device_index(ctranslate2::Device::CUDA);
@@ -858,6 +850,23 @@ namespace ctranslate2 {
 #endif
       }
 #endif
+
+      if (tensor_parallel
+          && device != Device::CUDA
+#if defined(CT2_WITH_XPU)
+          && device != Device::XPU
+#endif
+          ) {
+        throw std::invalid_argument("Tensor Parallel mode can run only on cuda"
+#if defined(CT2_WITH_XPU)
+                                    " or xpu"
+#endif
+                                    );
+      }
+      if (tensor_parallel && (device_indices.size() > 1)) {
+        spdlog::warn("Running model in mode tensor parallel does not support"
+                     " running independently a model in each device");
+      }
 
       std::vector<std::shared_ptr<const Model>> models;
 

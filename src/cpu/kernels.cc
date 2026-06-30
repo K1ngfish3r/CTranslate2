@@ -30,6 +30,9 @@
 #if defined(_MSC_VER)
 #  define CT2_FFAST_MATH_BEGIN __pragma(float_control(precise, off, push))
 #  define CT2_FFAST_MATH_END __pragma(float_control(pop))
+#elif defined(__INTEL_LLVM_COMPILER) || defined(__SYCL_COMPILER_VERSION)
+#  define CT2_FFAST_MATH_BEGIN
+#  define CT2_FFAST_MATH_END
 #elif defined(__clang__)
 #  define CT2_FFAST_MATH_BEGIN _Pragma("float_control(precise, off, push)")
 #  define CT2_FFAST_MATH_END _Pragma("float_control(pop)")

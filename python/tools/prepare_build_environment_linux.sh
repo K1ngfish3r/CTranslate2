@@ -36,13 +36,13 @@ else
         libnccl-devel-2.26.2-1+cuda12.8
     ln -s cuda-12.8 /usr/local/cuda
 
-    ONEAPI_VERSION=2025.3.0
+    ONEAPI_VERSION=2026.0
     dnf config-manager --add-repo https://yum.repos.intel.com/oneapi
     rpm --import https://yum.repos.intel.com/intel-gpg-keys/GPG-PUB-KEY-INTEL-SW-PRODUCTS.PUB
     dnf install -y intel-oneapi-mkl-devel-$ONEAPI_VERSION
 
-    ONEDNN_VERSION=3.1.1
-    curl -L -O https://github.com/oneapi-src/oneDNN/archive/refs/tags/v${ONEDNN_VERSION}.tar.gz
+    ONEDNN_VERSION=3.12.2
+    curl -L -O https://github.com/uxlfoundation/oneDNN/archive/refs/tags/v${ONEDNN_VERSION}.tar.gz
     tar xf *.tar.gz && rm *.tar.gz
     cd oneDNN-*
     cmake -DCMAKE_BUILD_TYPE=Release -DONEDNN_LIBRARY_TYPE=STATIC -DONEDNN_BUILD_EXAMPLES=OFF -DONEDNN_BUILD_TESTS=OFF -DONEDNN_ENABLE_WORKLOAD=INFERENCE -DONEDNN_ENABLE_PRIMITIVE="CONVOLUTION;REORDER" -DONEDNN_BUILD_GRAPH=OFF .

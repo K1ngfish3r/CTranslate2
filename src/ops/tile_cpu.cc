@@ -31,5 +31,16 @@ namespace ctranslate2 {
 
     DECLARE_ALL_TYPES(DECLARE_IMPL)
 
+#ifdef CT2_WITH_XPU
+#  define DECLARE_IMPL_XPU(T)                                     \
+    template void                                                       \
+    Tile::compute<Device::XPU, T>(const StorageView& input,       \
+                                        const dim_t outer_size,         \
+                                        const dim_t inner_size,         \
+                                        StorageView& output) const;
+
+    DECLARE_ALL_TYPES(DECLARE_IMPL_XPU)
+#endif
+
   }
 }

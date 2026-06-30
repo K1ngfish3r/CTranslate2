@@ -11,7 +11,7 @@ RUN apt-get update && \
 
 WORKDIR /root
 
-ENV ONEAPI_VERSION=2025.3
+ENV ONEAPI_VERSION=2026.0
 RUN wget -q https://apt.repos.intel.com/intel-gpg-keys/GPG-PUB-KEY-INTEL-SW-PRODUCTS.PUB && \
     apt-key add *.PUB && \
     rm *.PUB && \
@@ -25,8 +25,8 @@ RUN wget -q https://apt.repos.intel.com/intel-gpg-keys/GPG-PUB-KEY-INTEL-SW-PROD
 
 RUN python3 -m pip --no-cache-dir install cmake==3.22.*
 
-ENV ONEDNN_VERSION=3.1.1
-RUN wget -q https://github.com/oneapi-src/oneDNN/archive/refs/tags/v${ONEDNN_VERSION}.tar.gz && \
+ENV ONEDNN_VERSION=3.12.2
+RUN wget -q https://github.com/uxlfoundation/oneDNN/archive/refs/tags/v${ONEDNN_VERSION}.tar.gz && \
     tar xf *.tar.gz && \
     rm *.tar.gz && \
     cd oneDNN-* && \

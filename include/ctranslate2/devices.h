@@ -4,7 +4,7 @@
 #include <string>
 #include <vector>
 #include <cstdint>
-#ifdef CT2_WITH_TENSOR_PARALLEL
+#if defined(CT2_WITH_TENSOR_PARALLEL) && defined(CT2_WITH_CUDA)
 #  include <nccl.h>
 #endif
 
@@ -12,7 +12,8 @@ namespace ctranslate2 {
 
   enum class Device {
     CPU,
-    CUDA
+    CUDA,
+    XPU
   };
 
   Device str_to_device(const std::string& device);
@@ -65,17 +66,19 @@ namespace ctranslate2 {
     static int getCurRank();
     static int getLocalRank();
 
-#ifdef CT2_WITH_TENSOR_PARALLEL
+#if defined(CT2_WITH_TENSOR_PARALLEL) && defined(CT2_WITH_CUDA)
     static ncclComm_t getNcclComm();
 #endif
 
     static void finalize();
 
   private:
+#if defined(CT2_WITH_TENSOR_PARALLEL) && defined(CT2_WITH_CUDA)
+    static std::vector<ncclComm_t*> _nccl_comms;
+#endif
 #ifdef CT2_WITH_TENSOR_PARALLEL
     static uint64_t getHostHash(const char *string);
     static void getHostName(char *hostname, int maxlen);
-    static std::vector<ncclComm_t*> _nccl_comms;
 #endif
   };
 }

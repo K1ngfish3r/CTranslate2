@@ -70,7 +70,7 @@ jobs:
         if: matrix.backend == 'dnnl'
         run: |
           tests/ctranslate2_test tests/data
-          
+
   build-and-test-cpp-x86_64-address_sanitizer:
     runs-on: ubuntu-22.04
     env:
@@ -97,7 +97,7 @@ jobs:
 
       - name: Install Clang
         run: |
-          sudo apt install -y clang  
+          sudo apt install -y clang
 
       - name: Configure with MKL and Clang
         env:
@@ -121,7 +121,7 @@ jobs:
           CT2_USE_MKL: 1
         run: |
           ASAN_OPTIONS=detect_leaks=1:print_stats=1 tests/ctranslate2_test tests/data
-          
+
   build-and-test-cpp-arm64:
     runs-on: ${{ matrix.os }}
     env:
@@ -266,12 +266,75 @@ jobs:
           CIBW_MANYLINUX_X86_64_IMAGE: manylinux_2_28
           CIBW_ARCHS: auto64
           CIBW_SKIP: "*-musllinux_*"
-          CIBW_REPAIR_WHEEL_COMMAND_LINUX: 'auditwheel repair -w {dest_dir} --exclude "/opt/rocm/lib/lib*" {wheel}'
+          CIBW_REPAIR_WHEEL_COMMAND_LINUX: >
+            auditwheel repair -w {dest_dir}
+            --exclude "libamdhip64.so*"
+            --exclude "libhsa-runtime64.so*"
+            --exclude "librocblas.so*"
+            --exclude "libhipblas.so*"
+            --exclude "libnuma.so*"
+            --exclude "libdrm.so*"
+            --exclude "libelf.so*"
+            --exclude "libdrm_amdgpu.so*"
+            {wheel}
 
       - name: Upload Python wheels
         uses: actions/upload-artifact@v4
         with:
           name: rocm-python-wheels-${{ runner.os }}
+          path: python/wheelhouse
+
+  build-python-wheels-xpu:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-24.04, windows-2025]
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Cache oneAPI (Windows)
+        if: runner.os == 'Windows'
+        uses: actions/cache@v4
+        with:
+          path: |
+            C:/Program Files (x86)/Intel/oneAPI
+          key: windows-xpu-oneapi-${{ hashFiles('python/tools/prepare_build_environment_windows_xpu.sh') }}
+
+      - name: Build wheels
+        uses: pypa/cibuildwheel@v3.2.1
+        with:
+          package-dir: python
+          output-dir: python/wheelhouse
+        env:
+          CIBW_ENVIRONMENT_LINUX: LD_LIBRARY_PATH=/opt/intel/oneapi/compiler/latest/lib:/opt/intel/oneapi/dnnl/latest/gpu_dpc/lib:/opt/intel/oneapi/dnnl/latest/lib:/opt/intel/oneapi/mkl/latest/lib:/opt/intel/oneapi/lib:/usr/local/lib:$LD_LIBRARY_PATH
+          CIBW_ENVIRONMENT_WINDOWS: CTRANSLATE2_ROOT='${{ github.workspace }}\install'
+          CIBW_BEFORE_ALL_LINUX: python/tools/prepare_build_environment_linux_xpu.sh
+          CIBW_BEFORE_ALL_WINDOWS: bash python/tools/prepare_build_environment_windows_xpu.sh
+          CIBW_BEFORE_BUILD: pip install -r python/install_requirements.txt
+          CIBW_MANYLINUX_X86_64_IMAGE: manylinux_2_28
+          CIBW_ARCHS: auto64
+          CIBW_SKIP: "*-musllinux_*"
+          CIBW_REPAIR_WHEEL_COMMAND_LINUX: >
+            auditwheel repair -w {dest_dir}
+            --exclude "libsycl.so*"
+            --exclude "libdnnl.so*"
+            --exclude "libmkl_*.so*"
+            --exclude "libOpenCL.so*"
+            --exclude "libimf.so"
+            --exclude "libsvml.so"
+            --exclude "libirng.so"
+            --exclude "libintlc.so*"
+            --exclude "libmpi.so*"
+            --exclude "libccl.so*"
+            {wheel}
+
+      - name: Upload Python wheels
+        uses: actions/upload-artifact@v4
+        with:
+          name: xpu-python-wheels-${{ runner.os }}
           path: python/wheelhouse
 
 
@@ -298,6 +361,94 @@ jobs:
           - os: macos-15
             artifact_pattern: python-wheels-macOS-arm64
             wheel_pattern: "*cp312*macosx*arm64.whl"
+
+    steps:
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: actions/checkout@v4
+
+      - name: Prepare test environment
+        shell: bash
+        run: |
+          ./python/tools/prepare_test_environment.sh
+
+      - name: Download Python wheels
+        uses: actions/download-artifact@v4
+        with:
+          pattern: ${{ matrix.artifact_pattern }}
+          merge-multiple: true
+          path: .
+
+      - name: Install wheel
+        shell: bash
+        run: |
+          pip install ${{ matrix.wheel_pattern }}
+
+      - name: Test Python wheel
+        run: |
+          pytest -v python/tests/ --ignore=python/tests/test_fairseq.py --ignore=python/tests/test_opennmt_py.py --ignore=python/tests/test_opennmt_tf.py
+
+
+  test-python-wheels-rocm:
+    needs: [build-python-wheels-rocm]
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            artifact_pattern: rocm-python-wheels-Linux
+            wheel_pattern: "*cp312*manylinux*x86_64.whl"
+
+          - os: windows-2025
+            artifact_pattern: rocm-python-wheels-Windows
+            wheel_pattern: "*cp312*win*amd64.whl"
+
+    steps:
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: actions/checkout@v4
+
+      - name: Prepare test environment
+        shell: bash
+        run: |
+          ./python/tools/prepare_test_environment.sh
+
+      - name: Download Python wheels
+        uses: actions/download-artifact@v4
+        with:
+          pattern: ${{ matrix.artifact_pattern }}
+          merge-multiple: true
+          path: .
+
+      - name: Install wheel
+        shell: bash
+        run: |
+          pip install ${{ matrix.wheel_pattern }}
+
+      - name: Test Python wheel
+        run: |
+          pytest -v python/tests/ --ignore=python/tests/test_fairseq.py --ignore=python/tests/test_opennmt_py.py --ignore=python/tests/test_opennmt_tf.py
+
+
+  test-python-wheels-xpu:
+    needs: [build-python-wheels-xpu]
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            artifact_pattern: xpu-python-wheels-Linux
+            wheel_pattern: "*cp312*manylinux*x86_64.whl"
+
+          - os: windows-2025
+            artifact_pattern: xpu-python-wheels-Windows
+            wheel_pattern: "*cp312*win*amd64.whl"
 
     steps:
       - name: Set up Python 3.12

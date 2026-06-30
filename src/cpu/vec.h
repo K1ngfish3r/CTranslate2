@@ -146,6 +146,7 @@ namespace ctranslate2 {
 
       template<typename U>
       static inline void convert_and_store(float v, U* a, dim_t count) {
+          (void)count;
           *a = v;
       }
     };

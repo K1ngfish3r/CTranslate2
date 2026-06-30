@@ -18,16 +18,44 @@
   }
 
 #define SINGLE_ARG(...) __VA_ARGS__
-#ifndef CT2_WITH_CUDA
+
+#ifdef CT2_WITH_CUDA
 #  define DEVICE_DISPATCH(DEVICE, STMTS)                \
   switch (DEVICE) {                                     \
+    DEVICE_CASE(Device::CUDA, SINGLE_ARG(STMTS))        \
+    UNSUPPORTED_DEVICE_CASE(Device::XPU)          \
+    DEVICE_CASE(Device::CPU, SINGLE_ARG(STMTS))         \
+  }
+#  define GPU_DEVICE_DISPATCH(DEVICE, STMTS)            \
+  switch (DEVICE) {                                     \
+    DEVICE_CASE(Device::CUDA, SINGLE_ARG(STMTS))        \
+    UNSUPPORTED_DEVICE_CASE(Device::XPU)          \
+    UNSUPPORTED_DEVICE_CASE(Device::CPU)          \
+  }
+#elif defined(CT2_WITH_XPU)
+#  define DEVICE_DISPATCH(DEVICE, STMTS)                \
+  switch (DEVICE) {                                     \
+    DEVICE_CASE(Device::XPU, SINGLE_ARG(STMTS))   \
     UNSUPPORTED_DEVICE_CASE(Device::CUDA)               \
     DEVICE_CASE(Device::CPU, SINGLE_ARG(STMTS))         \
+  }
+#  define GPU_DEVICE_DISPATCH(DEVICE, STMTS)            \
+  switch (DEVICE) {                                     \
+    DEVICE_CASE(Device::XPU, SINGLE_ARG(STMTS))   \
+    UNSUPPORTED_DEVICE_CASE(Device::CUDA)               \
+    UNSUPPORTED_DEVICE_CASE(Device::CPU)          \
   }
 #else
 #  define DEVICE_DISPATCH(DEVICE, STMTS)                \
   switch (DEVICE) {                                     \
-    DEVICE_CASE(Device::CUDA, SINGLE_ARG(STMTS))        \
+    UNSUPPORTED_DEVICE_CASE(Device::CUDA)               \
+    UNSUPPORTED_DEVICE_CASE(Device::XPU)          \
     DEVICE_CASE(Device::CPU, SINGLE_ARG(STMTS))         \
+  }
+#  define GPU_DEVICE_DISPATCH(DEVICE, STMTS)            \
+  switch (DEVICE) {                                     \
+    UNSUPPORTED_DEVICE_CASE(Device::CUDA)               \
+    UNSUPPORTED_DEVICE_CASE(Device::XPU)          \
+    UNSUPPORTED_DEVICE_CASE(Device::CPU)          \
   }
 #endif

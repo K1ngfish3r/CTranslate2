@@ -1,4 +1,5 @@
 #include "ctranslate2/ops/bias_add.h"
+#include "type_dispatch.h"
 
 namespace ctranslate2 {
   namespace ops {
@@ -40,7 +41,18 @@ namespace ctranslate2 {
                                      StorageView& output,       \
                                      const StorageView* residual) const;
 
-    DECLARE_IMPL(float)
+    DECLARE_ALL_TYPES(DECLARE_IMPL)
+
+#ifdef CT2_WITH_XPU
+#  define DECLARE_IMPL_XPU(T)                                     \
+    template void                                                       \
+    BiasAdd::compute<Device::XPU, T>(const StorageView& value,    \
+                                           const StorageView& bias,     \
+                                           StorageView& output,         \
+                                           const StorageView* residual) const;
+
+    DECLARE_ALL_TYPES(DECLARE_IMPL_XPU)
+#endif
 
   }
 }

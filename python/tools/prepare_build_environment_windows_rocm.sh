@@ -23,14 +23,14 @@ export PYTORCH_ROCM_ARCH="gfx1030;gfx1100;gfx1101;gfx1102;gfx1150;gfx1151;gfx120
 
 # See https://github.com/oneapi-src/oneapi-ci for installer URLs
 if [ ! -d "C:/Program Files (x86)/Intel/oneAPI" ]; then
-    curl --netrc-optional -L -nv -o webimage.exe https://registrationcenter-download.intel.com/akdlm/IRC_NAS/1f18901e-877d-469d-a41a-a10f11b39336/intel-oneapi-base-toolkit-2025.3.0.372_offline.exe
+    curl --netrc-optional -L -nv -o webimage.exe https://registrationcenter-download.intel.com/akdlm/IRC_NAS/4144bec3-82ce-4672-bd71-5c93a79cd5e7/intel-oneapi-toolkit-2026.1.0.191_offline.exe
     ./webimage.exe -s -x -f webimage_extracted --log extract.log
     rm webimage.exe
     ./webimage_extracted/bootstrapper.exe -s --action install --components="intel.oneapi.win.mkl.devel" --eula=accept -p=NEED_VS2017_INTEGRATION=0 -p=NEED_VS2019_INTEGRATION=0 --log-dir=.
 fi
 
 NPROC=$(nproc)
-ONEDNN_VERSION=3.10.2
+ONEDNN_VERSION=3.12.2
 if [ ! -d "C:/Program Files (x86)/oneDNN" ]; then
     curl --netrc-optional -L -O https://github.com/uxlfoundation/oneDNN/archive/refs/tags/v${ONEDNN_VERSION}.tar.gz
     tar xf *.tar.gz && rm *.tar.gz
@@ -47,4 +47,4 @@ rm -r build
 
 cp README.md python/
 cp $CTRANSLATE2_ROOT/bin/ctranslate2.dll python/ctranslate2/
-cp "C:/Program Files (x86)/Intel/oneAPI/2025.3/bin/libiomp5md.dll" python/ctranslate2/
+cp "C:/Program Files (x86)/Intel/oneAPI/2026.1/bin/libiomp5md.dll" python/ctranslate2/

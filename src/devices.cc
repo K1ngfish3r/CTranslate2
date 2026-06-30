@@ -4,8 +4,26 @@
 #  include "cuda/utils.h"
 #  include "cuda/random.h"
 #endif
+#ifdef CT2_WITH_XPU
+#  include "xpu/utils.h"
+#  include "ctranslate2/allocator.h"
+#endif
 #ifdef CT2_WITH_TENSOR_PARALLEL
 #  include <unistd.h>
+#  ifndef CT2_WITH_CUDA
+#    include <mpi.h>
+#    include "ctranslate2/utils.h"
+#    define STUB_MPI_COMM_WORLD MPI_COMM_WORLD
+#    define STUB_MPI_DATATYPE_NULL MPI_DATATYPE_NULL
+#    define STUB_MPI_BYTE MPI_BYTE
+#    define MPI_CHECK(ans)                                                 \
+  {                                                                     \
+    int e = ans;                                                        \
+    if( e != MPI_SUCCESS )                                              \
+      THROW_RUNTIME_ERROR("MPI failed with error "                      \
+                          + std::to_string(e));                         \
+  }
+#  endif
 #endif
 
 #include "device_dispatch.h"
@@ -21,9 +39,17 @@ namespace ctranslate2 {
 #endif
     if (device == "cpu" || device == "CPU")
       return Device::CPU;
+    if (device == "xpu" || device == "XPU")
+#ifdef CT2_WITH_XPU
+      return Device::XPU;
+#else
+      throw std::invalid_argument("This CTranslate2 package was not compiled with XPU support");
+#endif
     if (device == "auto" || device == "AUTO")
 #ifdef CT2_WITH_CUDA
       return cuda::has_gpu() ? Device::CUDA : Device::CPU;
+#elif defined(CT2_WITH_XPU)
+      return xpu::has_gpu() ? Device::XPU : Device::CPU;
 #else
       return Device::CPU;
 #endif
@@ -36,6 +62,8 @@ namespace ctranslate2 {
       return "cuda";
     case Device::CPU:
       return "cpu";
+    case Device::XPU:
+      return "xpu";
     }
     return "";
   }
@@ -49,6 +77,12 @@ namespace ctranslate2 {
     case Device::CUDA:
 #ifdef CT2_WITH_CUDA
       return cuda::get_gpu_count();
+#else
+      return 0;
+#endif
+    case Device::XPU:
+#ifdef CT2_WITH_XPU
+      return xpu::get_gpu_count();
 #else
       return 0;
 #endif
@@ -88,6 +122,18 @@ namespace ctranslate2 {
   }
 #endif
 
+#ifdef CT2_WITH_XPU
+  template<>
+  int get_device_index<Device::XPU>() {
+    return xpu::get_device_index();
+  }
+
+  template<>
+  void set_device_index<Device::XPU>(int index) {
+    xpu::set_device_index(index);
+  }
+#endif
+
   int get_device_index(Device device) {
     int index = 0;
     DEVICE_DISPATCH(device, index = get_device_index<D>());
@@ -103,35 +149,51 @@ namespace ctranslate2 {
     if (device == Device::CUDA) {
       const ScopedDeviceSetter scoped_device_setter(device, index);
       cudaDeviceSynchronize();
-    }
-#else
-    (void)device;
-    (void)index;
+    } else
+#elif defined(CT2_WITH_XPU)
+    if (device == Device::XPU) {
+      const ScopedDeviceSetter scoped_device_setter(device, index);
+      xpu::synchronize();
+    } else
 #endif
+    {
+      (void)device;
+      (void)index;
+    }
   }
 
   void synchronize_stream(Device device) {
 #ifdef CT2_WITH_CUDA
     if (device == Device::CUDA) {
       cudaStreamSynchronize(cuda::get_cuda_stream());
-    }
-#else
-    (void)device;
+    } else
+#elif defined(CT2_WITH_XPU)
+    if (device == Device::XPU) {
+      xpu::synchronize();
+    } else
 #endif
+    {
+      (void)device;
+    }
   }
 
   void destroy_context(Device device) {
 #ifdef CT2_WITH_CUDA
-      if (device == Device::CUDA) {
-          cuda::free_curand_states();
-      }
-#else
-      (void)device;
+    if (device == Device::CUDA) {
+      cuda::free_curand_states();
+    } else
+#elif defined(CT2_WITH_XPU)
+    if (device == Device::XPU) {
+      get_allocator<Device::XPU>().clear_cache();
+    } else
 #endif
+    {
+      (void)device;
+    }
   }
 
   // Initialize the static member variable
-#ifdef CT2_WITH_TENSOR_PARALLEL
+#if defined(CT2_WITH_TENSOR_PARALLEL) && defined(CT2_WITH_CUDA)
     std::vector<ncclComm_t*> ScopedMPISetter::_nccl_comms;
 #endif
   int my_rank = 0;
@@ -184,7 +246,9 @@ namespace ctranslate2 {
       }
     }
   }
+#endif
 
+#if defined(CT2_WITH_TENSOR_PARALLEL) && defined(CT2_WITH_CUDA)
   ncclComm_t ScopedMPISetter::getNcclComm() {
     static thread_local ncclComm_t comm;
     static thread_local ncclUniqueId id;
@@ -205,6 +269,7 @@ namespace ctranslate2 {
 
   void ScopedMPISetter::finalize() {
 #ifdef CT2_WITH_TENSOR_PARALLEL
+#if defined(CT2_WITH_CUDA)
     for (auto* comm : _nccl_comms) {
         //finalizing NCCL
         if (*comm) {
@@ -212,6 +277,7 @@ namespace ctranslate2 {
           NCCL_CHECK(ncclCommDestroy(*comm));
         }
     }
+#endif
     MPI_CHECK(MPI_Finalize());
 #endif
   }

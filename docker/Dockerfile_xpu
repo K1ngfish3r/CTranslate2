@@ -1,0 +1,110 @@
+# Copyright (c) 2024-2026, CTranslate2 contributors
+#
+# Dockerfile for building CTranslate2 with Intel XPU (oneAPI DPC++/SYCL) support.
+#
+# Aligned with: python/tools/prepare_build_environment_linux_xpu.sh
+
+ARG ONEAPI_VERSION=2026.0
+FROM ubuntu:22.04 AS builder
+
+RUN apt-get update && \
+    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+        wget \
+        curl \
+        gpg-agent \
+        software-properties-common \
+        ca-certificates \
+        python3-dev \
+        python3-pip \
+        && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
+
+RUN curl -fsSL https://apt.repos.intel.com/intel-gpg-keys/GPG-PUB-KEY-INTEL-SW-PRODUCTS.PUB | \
+        gpg --dearmour -o /usr/share/keyrings/intel-oneapi-archive-keyring.gpg && \
+    echo "deb [signed-by=/usr/share/keyrings/intel-oneapi-archive-keyring.gpg] https://apt.repos.intel.com/oneapi all main" \
+        > /etc/apt/sources.list.d/oneAPI.list && \
+    apt-get update && \
+    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+        intel-oneapi-compiler-dpcpp-cpp-${ONEAPI_VERSION} \
+        intel-oneapi-mkl-devel-${ONEAPI_VERSION} \
+        intel-oneapi-dnnl-devel-${ONEAPI_VERSION} \
+        intel-oneapi-ccl-devel \
+        intel-oneapi-mpi-devel \
+        && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
+
+WORKDIR /root
+
+ENV ONEAPI_ROOT=/opt/intel/oneapi
+RUN . ${ONEAPI_ROOT}/setvars.sh && \
+    python3 -m pip --no-cache-dir install cmake==3.22.*
+
+COPY third_party third_party
+COPY cli cli
+COPY include include
+COPY src src
+COPY cmake cmake
+COPY python python
+COPY CMakeLists.txt .
+
+ARG CXX_FLAGS
+ENV CXX_FLAGS=${CXX_FLAGS:-"-msse4.1"}
+ENV CTRANSLATE2_ROOT=/opt/ctranslate2
+
+RUN . ${ONEAPI_ROOT}/setvars.sh && \
+    mkdir build_tmp && \
+    cd build_tmp && \
+    cmake -DCMAKE_INSTALL_PREFIX=${CTRANSLATE2_ROOT} \
+          -DCMAKE_C_COMPILER=icx \
+          -DCMAKE_CXX_COMPILER=icpx \
+          -DWITH_MKL=ON \
+          -DWITH_XPU=ON \
+          -DOPENMP_RUNTIME=INTEL \
+          -DWITH_TENSOR_PARALLEL=ON \
+          -DCMAKE_BUILD_TYPE=Release \
+          -DCMAKE_CXX_FLAGS="${CXX_FLAGS}" \
+          .. && \
+    VERBOSE=1 make -j$(nproc) install && \
+    cd .. && \
+    rm -r build_tmp
+
+ENV LANG=en_US.UTF-8
+COPY README.md .
+
+RUN . ${ONEAPI_ROOT}/setvars.sh && \
+    cd python && \
+    cp ../README.md . && \
+    python3 -m pip --no-cache-dir install -r install_requirements.txt && \
+    python3 setup.py bdist_wheel --dist-dir $CTRANSLATE2_ROOT
+
+FROM ubuntu:22.04
+
+RUN apt-get update && \
+    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+        libgomp1 \
+        python3-pip \
+        intel-opencl-icd \
+        intel-level-zero-gpu \
+        && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
+
+ENV CTRANSLATE2_ROOT=/opt/ctranslate2
+ENV ONEAPI_ROOT=/opt/intel/oneapi
+ENV LD_LIBRARY_PATH=$CTRANSLATE2_ROOT/lib:${ONEAPI_ROOT}/mkl/latest/lib:${ONEAPI_ROOT}/dnnl/latest/gpu_dpc/lib:${ONEAPI_ROOT}/lib:${ONEAPI_ROOT}/compiler/latest/lib:${ONEAPI_ROOT}/ccl/latest/lib:${ONEAPI_ROOT}/mpi/latest/lib
+
+COPY --from=builder $CTRANSLATE2_ROOT $CTRANSLATE2_ROOT
+COPY --from=builder ${ONEAPI_ROOT}/dnnl ${ONEAPI_ROOT}/dnnl
+COPY --from=builder ${ONEAPI_ROOT}/mkl ${ONEAPI_ROOT}/mkl
+COPY --from=builder ${ONEAPI_ROOT}/lib ${ONEAPI_ROOT}/lib
+COPY --from=builder ${ONEAPI_ROOT}/compiler/latest/lib ${ONEAPI_ROOT}/compiler/latest/lib
+COPY --from=builder ${ONEAPI_ROOT}/ccl ${ONEAPI_ROOT}/ccl
+COPY --from=builder ${ONEAPI_ROOT}/mpi ${ONEAPI_ROOT}/mpi
+
+RUN ldconfig && \
+    python3 -m pip --no-cache-dir install $CTRANSLATE2_ROOT/*.whl && \
+    rm $CTRANSLATE2_ROOT/*.whl
+
+ENTRYPOINT ["/opt/ctranslate2/bin/ct2-translator"]

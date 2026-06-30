@@ -102,6 +102,12 @@ namespace ctranslate2 {
       return false;
 #endif
     }
+    case Device::XPU:
+#ifdef CT2_WITH_XPU
+      return true;
+#else
+      return false;
+#endif
     default:
       return false;
     }
@@ -118,6 +124,12 @@ namespace ctranslate2 {
       return false;
 #endif
     }
+    case Device::XPU:
+#ifdef CT2_WITH_XPU
+      return true;
+#else
+      return false;
+#endif
     default:
       return false;
     }
@@ -139,6 +151,12 @@ namespace ctranslate2 {
       return cuda::gpu_supports_int8(device_index);
 #else
       (void)device_index;
+      return false;
+#endif
+    case Device::XPU:
+#ifdef CT2_WITH_XPU
+      return true;
+#else
       return false;
 #endif
     case Device::CPU:
